@@ -1,0 +1,236 @@
+---
+title: "DATA621_Homework 1"
+output: 
+  html_document:
+    theme: cerulean
+    Highlight: tango
+    toc: yes
+    toc_float: yes
+date: "2023-03-05"
+---
+
+
+### load the required Packages
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(reshape2)
+library(mixtools)
+library(tidymodels)
+library(ggpmisc)
+library(DataExplorer)
+library(timeDate)
+library(caret)
+library(corrplot)
+library(mice)
+```
+
+## Data Exploration 
+
+### Dataset:
+
+The moneyball training set contains 17 columns - including the target variable “TARGET_WINS” - and 2276 rows, covering baseball team performance statistics from the years 1871 to 2006 inclusive. The data has been adjusted to match the performance of a typical 162 game season. The data-set was entirely numerical and contained no categorical variables.
+
+There are also quite a few variables with missing values. and,Some variables are right skewed (TEAM_BASERUN_CS, TEAM_BASERUN_SB, etc.). This might support the good team theory. It may also introduce non-normally distributed residuals in the model. We shall see.
+
+###   Load the Data
+```{r}
+df_training <- read_csv('moneyball-training-data.csv')
+df_eval <- read_csv("moneyball-evaluation-data.csv")
+```
+
+#### Summary of the Data
+
+```{r}
+summary(df_training)
+```
+
+```{r}
+summary(df_eval)
+```
+
+
+```{r}
+# Drop the INDEX column - this won't be useful
+df_training <- df_training %>% 
+  dplyr::select(-INDEX)
+```
+
+```{r}
+summary(df_training)
+```
+
+```{r}
+df_training %>%
+  gather(variable, value, TARGET_WINS:TEAM_FIELDING_DP) %>%
+  ggplot(., aes(value)) + 
+  geom_density(fill = "#3A8B63", color="#3A8B63") + 
+  facet_wrap(~variable, scales ="free", ncol = 4) +
+  labs(x = element_blank(), y = element_blank())
+```
+
+```{r warning=FALSE}
+gather_df <- df_training %>% 
+  gather(key = 'variable', value = 'value')
+# Histogram plots of each variable
+ggplot(gather_df) + 
+  geom_histogram(aes(x=value, y = ..density..), bins=30) + 
+  geom_density(aes(x=value), color='blue') +
+  facet_wrap(. ~variable, scales='free', ncol=4)
+```
+
+###   correlation with Response variable
+```{r}
+temp <- df_training %>% 
+  cor(., use = "complete.obs") #%>%
+  
+temp[lower.tri(temp, diag=TRUE)] <- ""
+temp <- temp %>%
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  gather(Variable, Correlation, -rowname) %>%
+  filter(Variable != rowname) %>%
+  filter(Correlation != "") %>%
+  mutate(Correlation = as.numeric(Correlation)) %>%
+  rename(` Variable` = rowname) %>%
+  arrange(desc(abs(Correlation))) 
+```
+
+
+```{r warning=FALSE}
+df_training %>%
+  gather(variable, value, -TARGET_WINS) %>%
+  ggplot(., aes(value, TARGET_WINS)) + 
+  geom_point(fill = "#628B3A", color="#628B3A") + 
+  geom_smooth(method = "lm", se = FALSE, color = "black") + 
+  facet_wrap(~variable, scales ="free", ncol = 4) +
+  labs(x = element_blank(), y = "Wins")
+```
+
+```{r}
+df_training %>% 
+  cor(., use = "complete.obs") %>%
+  corrplot(., method = "color", type = "upper", tl.col = "black", diag = FALSE)
+```
+
+## Data Preparation
+
+```{r}
+#visulaization and percentage of NA values
+visdat::vis_miss(df_training)
+```
+```{r}
+#alternative NA values visualization
+df_training  %>%
+  summarise_all(list(~is.na(.)))%>%
+  pivot_longer(everything(),
+               names_to = "variables", values_to="missing") %>%
+  count(variables, missing) %>%
+  ggplot(aes(y=variables,x=n,fill=missing))+
+  geom_col()
+```
+**Since 92% of the data for the TEAM_BATTING_HBP is missing, the variable has been removed from both test and train data. TEAM_BASERUN_CS is a runner up with the next highest amount of NA at 34%.**
+
+```{r}
+#removes the TEAM_BATTING_HBP due to high # of NAs
+train <- df_training %>% 
+  select(-c(TEAM_BATTING_HBP))
+test <- df_eval %>% 
+  select(-c(TEAM_BATTING_HBP))
+```
+
+```{r}
+#creates CSV in your current working directory of R
+write.csv(train, 'hw1_train_data.csv')
+write.csv(test, 'hw1_test_data.csv')
+```
+
+
+```{r}
+#build_kmeans()
+
+imputed_train_data <- mice(train, m=1)
+```
+
+```{r}
+imputed_test_data <- mice(test, m=1)
+```
+
+```{r}
+#appends the imputed data to the original data
+imp_train <- complete(imputed_train_data, "long", inc = TRUE)
+
+imp_test <- complete(imputed_test_data, "long", inc = TRUE)
+```
+
+```{r}
+#Imputation Diagnostic Checks
+
+## labels observed data in blue and imputed data in red for y1
+col <- rep(c("blue", "red")[1 + as.numeric(is.na(imputed_train_data$data$TEAM_BATTING_H))], 6)
+## plots data for y1 by imputation
+stripplot(TEAM_BATTING_H ~ .imp, data = imp_train, jit = TRUE, col = col, xlab = "imputation Number")
+```
+
+
+```{r}
+head(train,1)
+```
+
+
+```{r}
+cases = dim(train)[1]
+features = dim(train)[2]
+cat('Training data for this project is', cases, 'cases and', features, 'features')
+```
+
+## Build Model
+
+
+### First Model
+Using a manual review, below are the features selected for the first model and the supporting reason/s.
+
+TEAM_BATTING_H = Base hits by batters: it’s impossible to win in baseball without getting to the bases and hitting the ball is the primary means to accomplish this.
+
+TEAM_PITCHING_H = Hits allowed: winning without a good defense is difficult and in baseball preventing the other team from getting hits is a good defense strategy.
+
+Only two features are selected for the first model - start small and build up seems like a good approach.
+
+** Create a regression Model**
+
+```{r}
+#Select the desired data for the model
+rmdata <- train %>%
+  select(TEAM_BATTING_H, TEAM_PITCHING_H, TARGET_WINS)
+
+#Build the first model and produce a summary
+first_model <- lm(TARGET_WINS ~ TEAM_BATTING_H + TEAM_PITCHING_H, data = rmdata)
+summary(first_model)
+```
+**The p values are 0, which per the criteria of “keep a feature if the p-value is <0.05” recommends that we keep both these features. But, the adjusted R-squared is TERRIBLE at around 21%. Even though the R-squared is poor it’s simple to run this model with the test data, so we’ll do that next.**
+
+
+### Second Model
+
+Using a manual review, below are the features selected for the second model and the supporting reason/s.
+
+We’ll keep the features from the first model (due to low p-values) and add two more features… TEAM_FIELDING_E = Errors: errors are costly in terms of immediate impact, but could also impact the team in other ways (i.e. a high occurrence could impact team comraderie and confidence in each other)
+
+TEAM_PITCHING_BB = Walks allowed: putting players on base for “free” is more opportunity for points
+
+**Create a Regression Model**
+
+```{r}
+#Select the desired data for the model
+rmdata <- train %>%
+  select(TEAM_BATTING_H, TEAM_PITCHING_H, TEAM_FIELDING_E, TEAM_PITCHING_BB, TARGET_WINS)
+
+#Build the second model and produce a summary
+second_model <- lm(TARGET_WINS ~ TEAM_BATTING_H + TEAM_PITCHING_H + TEAM_FIELDING_E + TEAM_PITCHING_BB, data = rmdata)
+summary(second_model)
+```
+**The increase from two features in the first model to four features in the second model did not yield a noticeable improvement. The Adjusted R2 on the training data improved slightly, but the RMSE for all practical purposes stayed the same at around 13.6; which is a poor RMSE implying that both models have poor predictive capability.**
+
+
+
+
