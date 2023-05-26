@@ -1,0 +1,341 @@
+---
+title: "Insurance Charges Prediction"
+output:
+  html_document:
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+#### Title: CUNY SPS MDS DATA621_Final Project"
+#### Author: Charles Ugiagbe
+#### Date: 5/24/2023
+
+
+
+## Part 1 - Introduction
+
+Medical expenses are any costs incurred in the prevention or treatment of injury or disease. To realize their profit, insurance companies must charge a higher premium than the amount paid to the insured. For this reason, insurance companies invest a lot of time, effort, and money in creating models that are able to accurately predict health care costs/charges. In order to fulfill this mission, we will first analyze the factors that influence medical loads and secondly try to build an adequate model and optimize its performance. For this study, our objective are:
+
+*   Determine if the mean insurance charges of Smokers in the dataset is different from the mean charges of Non - smokers
+
+*   Formulate a multiple Regression model or predicting the insurance charges of individuals
+
+
+## Part 2 - Data
+
+Data Source:
+
+Data is from kaggle public datasets and can be found online here: https://www.kaggle.com/mirichoi0218/insurance
+
+###  Type of study:
+
+This is an observational study as there is no control group.
+
+<style>
+div.aquamarine { background-color:#d9eff9; border-radius: 10px; padding: 5px;}
+</style>
+<div class = "aquamarine">
+
+### Cases:
+
+There are 7 variables and 1338 observations in the dataset. six(6) of the Variable in the dataset are potential predictor of the of the 7th variables (Insurance charges). There are no missing value in any of the observation. Each observation represents the likely variable that play vital roles in determining the insurance charge. The variables are explained below.
+
+* Age: the age of the insured (recipients).
+* Sex: sex of insured persons; "male" or "female".
+* bmi: body mass index, providing an understanding of the body, relatively high or low weights relative to height, objective body weight index (kg / m ^ 2) using the height / weight ratio.
+* children: number of children covered by health insurance / number of dependents.
+* smoker: does the insured smoke or not.
+* region: the recipient's residential area in the United States; northeast, southeast, southwest, northwest.
+* charges: Individual medical costs billed by health insurance.
+
+
+Response Variable (Dependent Variable)
+
+The Dependent variable is the Insurance Charges and its numerical
+
+Predictor Variables (Independent Variables):
+
+There are six(6) independent used. They independent variables are: Age(numeric), sex(categorical), BMI(numeric), Children(numeric), Smoker(categorical), Region(categorical)
+
+</div> \hfill\break
+
+## Part 3 - Exploratory data analysis
+
+Data Preparation
+
+
+```{r message=FALSE, warning=FALSE}
+# load the required libraries
+library(tidyverse)
+library(magrittr)
+library(Amelia) 
+library(corrplot)
+library(cowplot)
+library(gridExtra)
+```
+
+####    load the Data and view the head
+
+```{r}
+url <- "https://raw.githubusercontent.com/omocharly/DATA606_PROJECT/main/insurance.csv"
+insurance <- read_csv(url)
+head(insurance)
+```
+
+
+####    Take a glimpse look at the data structure
+
+```{r}
+glimpse(insurance)
+```
+**The Data has 7 variable and 1,338 Observation.**
+
+
+**We will convert the variables sex, children, region, smoker to the type factor which corresponds to the categorical variables for easy analysis:**
+
+```{r message=FALSE, warning=FALSE}
+insurance$sex %<>% as.factor()
+insurance$children %<>% as.factor()
+insurance$region %<>% as.factor()
+insurance$smoker %<>% as.factor()
+```
+
+
+
+#### Take the summary of the data
+```{r}
+summary(insurance)
+```
+
+put BMI into categories
+```{r }
+insurance %<>% mutate(bmi_cat = cut(bmi,
+  breaks = c(0, 18.5, 25, 30, 60),
+  labels = c("Under Weight", "Normal Weight", "Overweight", "Obese")
+))
+```
+
++ Under Weight:  bmi<18.5
++ Normal Weight:  18.5<bmi<25
++ Overweight : 25=<bmi<30
++ Obese: bmi>=30
+
+#### Missing values
+
+```{r echo = FALSE, paged.print=FALSE}
+missing_v <- colSums(is.na(insurance)) %>%
+  as.data.frame()
+names(missing_v) <- c("count missing")
+missing_v %>% 
+  knitr::kable(align = "c") %>% 
+  kableExtra::kable_styling(full_width = F, position = "left")
+```
+
+**The dataset contains no missing values**
+
+
+### Description of categorical variables
+```{r paged.print=FALSE, results="asis", cache = FALSE}
+categ_cols <- insurance %>% select_if(~ class(.) == "factor")
+for (col in names(categ_cols)) {
+  t <- insurance %>%
+    group_by_(col) %>%
+    summarise(count = n()) %>%
+    mutate(frequency = paste0(round(100 * count / sum(count), 0), "%")) %>% 
+    knitr::kable("html", align = "lcc") %>%
+    kableExtra::kable_styling(full_width = F, position = "left") %>% 
+    print()
+}
+```
+
+##     Visualisation
+
+####  Correlation matrix
+```{r echo = FALSE, cache = FALSE}
+insurance %>%
+  select(age:charges) %>%
+  lapply(as.numeric) %>%
+  as.data.frame() %>%
+  cor() -> M
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FAFAFA", "#77AADD", "#4477AA"))
+corrplot(M, method = "color", col = col(200),
+         type = "upper", order = "hclust", number.cex = .7,
+         addCoef.col = "black",
+         tl.col = "black",
+         diag = FALSE)
+```
+
+The variables most correlated with the charges are "smoker", "age" and "bmi".
+
+### Visualization of Charges, Age, Smoker and BMI distribution
+
+
+```{r}
+d1<-ggplot(data = insurance,aes(x=charges)) + geom_histogram(color="black", fill="mediumorchid1", bins=10)+
+labs(title="Charges distribution")
+d2<-ggplot(data = insurance,aes(x=bmi)) + geom_histogram(color="black", fill="mediumorchid1", bins=10)+
+labs(title="BMI histogram")
+d3<-ggplot(data = insurance,aes(x=age)) + geom_histogram(color="black", fill="mediumorchid1", bins=10)+
+labs(title="Age Distribution")
+d4<-ggplot(data = insurance,aes(x=smoker)) + geom_bar(color="black", fill="mediumorchid1", bins=10)+
+labs(title="Smoker Distribution") 
+plot_grid(d1, d2, d3, d4, rel_widths = c(1.15, 1),ncol = 2,
+  align = "hv")
+```
+
+<style>
+div.aquamarine { background-color:#d9eff9; border-radius: 10px; padding: 5px;}
+</style>
+<div class = "aquamarine">
+
+**Observations :**
+
+* The distributions of variables :
+    + The age distribution of individuals is relatively the same, except for the 18 and 19 year olds who have a higher proportion.
+    + The distribution of bmi is apparently normal centered around 30.
+    + The distribution of charges is negatively asymmetric.
+* We notice an effect of these variables on the charges, which we will explore more in depth later.
+* No significant dependency between: age & bmi, smoker & bmi, age & smoker.
+</div> \hfill\break
+
+```{r}
+p1<-ggplot(data = insurance,aes(as.factor(children),charges)) + geom_boxplot(fill = c(2:7)) +
+  theme_classic() +  xlab("children") +
+  ggtitle("Boxplot of Charges by Number of Children")
+p2<-ggplot(data = insurance,aes(sex,charges)) + geom_boxplot(fill = c(2:3)) +
+  theme_classic() + ggtitle("Boxplot of Charges by Gender")
+p3<-ggplot(data = insurance,aes(bmi_cat,charges)) + geom_boxplot(fill = c(2:5)) +
+  theme_classic() + ggtitle("Boxplot of Charges by BMI")
+p4<-ggplot(data = insurance,aes(smoker,charges)) + geom_boxplot(fill = c(2:3)) +
+  theme_classic() + ggtitle("Boxplot of Charges by Smoker")
+plot_grid(p1, p2, p3, p4, rel_widths = c(1.25, 1),ncol = 2,
+  align = "hv")
+```
+
+### Interactions between age, bmi and smoking and their impact on medical charges
+
+```{r}
+g1 <- insurance %>%
+  ggplot(aes(x = age, y = charges, col = bmi_cat)) +
+  geom_point(alpha = 0.6, size = 2.5)
+g2 <- insurance %>%
+  ggplot(aes(x = age, y = charges, col = smoker)) +
+  geom_point(alpha = 0.8,size = 2.5) +
+  scale_color_manual(values = c("#e09e8f", "#90b8c2")) +
+  geom_rug() +
+  geom_smooth() +
+  geom_smooth(
+    data = filter(insurance, smoker == "yes"),
+    col = "grey30",
+    method = lm,
+    se = FALSE
+  ) +
+  geom_smooth(
+    data = filter(insurance, smoker == "no"),
+    col = "grey30",
+    method = lm,
+    se = FALSE
+  )
+grid.arrange(g1, g2, nrow = 1)
+```
+
+The charges are linked to age by an almost linear relationship at three levels:
+
+a first group which is characterized by the highest charges, it is completely made up of obese smoker individuals.
+a second group which is characterized by the lowest charges, it consists entirely of non-smoking individuals and a normal bmi distribution.
+and a third non-homogeneous group which requires more exploration.
+
+We can also see that - for the three levels - the older the customers, the higher their charges.
+
+
+## Part 4 - Inference
+
+###   Test the mean insurance charges of smoker and non-smoker
+
+Hypothesis Question
+
+*$H_{0}$: There is no different between the mean insurance charges between smoker and Non-smoker.*
+
+*$H_{A}$: There is different between the mean insurance charges between smoker and Non-smoker.*
+
+```{r}
+t.test(insurance[which(insurance$smoker=="yes"), "charges"],
+       insurance[which(insurance$smoker=="no"), "charges"], alternative="two.sided", var.equal= TRUE)
+```
+
+**With the p-value less than 0.05 we can reject the null hypothesis of equal mean charges between smoker and non-smoker and accept the alternative hypothesis.**
+
+
+#### Model for insurance charges using age, bmi and smoker
+
+```{r}
+model <- lm(charges ~ age + bmi + smoker, data = insurance)
+summary(model)
+```
+
+**The linear model for predicting the score based on age, bmi and smoking status is given by:**
+
+charges = -11676.83 + 259.55(age) + 322.62(bmi) + 23823.68(smokeryes)
+
+The multiple r-squared is 74.75%. We add another variable children to see if it will give a better proportion of variance for charges. so we add children.
+
+
+#### Model for Charges using age, bmi, smoker and children.
+
+```{r}
+final_model <- lm(charges ~ age + bmi + smoker + children, data = insurance)
+summary(final_model)
+```
+
+**The linear model for predicting the score based on the final model that I settled on is given by:**
+
+charges = -12093.32 + 258.08(age) + 319.80(bmi) + 23796.71(smokeryes) + 368.77(children1) + 1626.51(children2) + 996.95(children3) + 2984.36(children4) + 899.13(children5)
+
+
+**We get a Higher R-squared for Charges when we added Children to the variable. so, we choose the later as our final model**
+
+###  To test reliablility of linear model using diagnostic plots.
+
+```{r}
+par(mfrow=c(1,2))
+plot(final_model,c(1,2))
+```
+
+```{r}
+par(mfrow=c(1,3))
+plot(jitter(insurance$age), resid(final_model))
+abline(h=0, col="violet")
+plot(jitter(insurance$bmi), resid(final_model))
+abline(h=0, col="violet")
+plot(jitter(insurance$charges), resid(final_model))
+abline(h=0, col="violet")
+```
+
+
+```{r}
+hist(resid(final_model))
+```
+<style>
+div.aquamarine { background-color:#d9eff9; border-radius: 10px; padding: 5px;}
+</style>
+<div class = "aquamarine">
+
+1. Linearty:
+For the quantitative variables `age`, `bmi`, `charges`: The residuals are most likely to be randomly dispersed, no obvious shapes or patterns are found.
+
+2. Nearly normal residuals
+The histogram of the residuals shows a normal distribution. The qq plot shows the residuals are mostly line along on the normal line.The normal residual condiction is somewhat met.
+
+3. Constant variability
+The majority of residuals are distributed between -1 and 1. The constant variability apprears to be met.
+
+Based on the three observation above, the linear model is reliable.
+</div> \hfill\break
+
+
+## Part 5 - Conclusion
+
+From the Exploratory data analysis, it was discovered smoking status, bmi and age are the highest predictor of insurance charges. smokers, insurer with bmi>30  and high numbers of age are the greater contributor to insurance charges.Also, it was discover in the t-test to compare the mean charges of smoker and non-smoker that there is huge different between the mean insurance charges of smokers and non-smokers. We were able to see that the condition for the multiple regression plot is reasonable.
